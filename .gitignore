@@ -20,8 +20,10 @@ certs/*
 *.crt
 *.csr
 
-# CrowdSec data
+# CrowdSec data (created by Docker at runtime)
 config/crowdsec-bouncer/
+config/crowdsec/*
+!config/crowdsec/config.yaml.local
 crowdsec-data/
 
 # Docker volumes data

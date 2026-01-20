@@ -5,15 +5,16 @@ services:
   # NGINX + ModSecurity WAF
   # ===========================================
   nginx-waf:
-    image: owasp/modsecurity-crs:4.8.0-nginx-alpine-202411100904
+    image: owasp/modsecurity-crs:4-nginx-alpine-202601060501
     container_name: nginx-waf
     ports:
-      - "${NGINX_HTTP_PORT:-80}:80"
-      - "${NGINX_HTTPS_PORT:-443}:443"
+      - "${NGINX_HTTP_PORT:-8080}:8080"
+      - "${NGINX_HTTPS_PORT:-8443}:8443"
     environment:
       # Backend configuration
-      - BACKEND=${BACKEND:-app:3000}
-      - PORT=80
+      - BACKEND=${BACKEND:-http://localhost:3000}
+      - PORT=8080
+      - SSL_PORT=8443
 
       # ModSecurity settings
       - MODSEC_RULE_ENGINE=${MODSEC_RULE_ENGINE:-On}
@@ -29,19 +30,11 @@ services:
       - PROXY_TIMEOUT=60
 
     volumes:
-      # Custom Nginx configuration
-      - ./config/nginx/nginx.conf:/etc/nginx/templates/nginx.conf.template:ro
-      - ./config/nginx/security-headers.conf:/etc/nginx/includes/security-headers.conf:ro
-      - ./config/nginx/proxy-headers.conf:/etc/nginx/includes/proxy-headers.conf:ro
-
       # Custom ModSecurity rules
       - ./config/modsecurity/custom-rules.conf:/etc/modsecurity.d/owasp-crs/rules/RESPONSE-999-CUSTOM.conf:ro
       - ./config/modsecurity/exclusions.conf:/etc/modsecurity.d/owasp-crs/rules/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf:ro
 
-      # SSL certificates (mount your certs here)
-      - ./certs:/etc/nginx/certs:ro
-
-      # Logs
+      # Logs (for CrowdSec analysis)
       - ./logs/nginx:/var/log/nginx
       - ./logs/modsecurity:/var/log/modsecurity
 
