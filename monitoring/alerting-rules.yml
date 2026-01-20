@@ -1,0 +1,185 @@
+# Prometheus Alerting Rules for Nginx Security Stack
+# Add these rules to your Prometheus alerting configuration
+
+groups:
+  # ===========================================
+  # Nginx WAF Alerts
+  # ===========================================
+  - name: nginx_waf_alerts
+    rules:
+      # Alert: Nginx WAF is down
+      - alert: NginxWafDown
+        expr: nginx_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: nginx-waf
+        annotations:
+          summary: "Nginx WAF is down"
+          description: "Nginx WAF instance {{ $labels.instance }} has been down for more than 1 minute."
+
+      # Alert: Nginx Exporter is unreachable
+      - alert: NginxExporterDown
+        expr: up{job="nginx-waf"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: nginx-waf
+        annotations:
+          summary: "Nginx Prometheus Exporter is unreachable"
+          description: "Cannot scrape metrics from nginx-exporter on {{ $labels.instance }}."
+
+      # Alert: High connection count
+      - alert: NginxHighConnections
+        expr: nginx_connections_active > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service: nginx-waf
+        annotations:
+          summary: "High number of active Nginx connections"
+          description: "Nginx has {{ $value }} active connections on {{ $labels.instance }}."
+
+      # Alert: Connection saturation
+      - alert: NginxConnectionSaturation
+        expr: nginx_connections_waiting / nginx_connections_active > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          service: nginx-waf
+        annotations:
+          summary: "Nginx connection saturation"
+          description: "High ratio of waiting to active connections ({{ $value | printf \"%.2f\" }}) on {{ $labels.instance }}."
+
+  # ===========================================
+  # CrowdSec Alerts
+  # ===========================================
+  - name: crowdsec_alerts
+    rules:
+      # Alert: CrowdSec is unreachable
+      - alert: CrowdsecDown
+        expr: up{job="crowdsec"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: crowdsec
+        annotations:
+          summary: "CrowdSec is unreachable"
+          description: "Cannot scrape metrics from CrowdSec on {{ $labels.instance }}."
+
+      # Alert: CrowdSec created new ban
+      - alert: CrowdsecNewBan
+        expr: increase(cs_active_decisions{action="ban"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          service: crowdsec
+        annotations:
+          summary: "CrowdSec created new IP ban"
+          description: "CrowdSec banned an IP. Reason: {{ $labels.reason }}. Origin: {{ $labels.origin }}."
+
+      # Alert: High number of active bans (possible attack)
+      - alert: CrowdsecManyActiveBans
+        expr: sum(cs_active_decisions{action="ban"}) > 50
+        for: 5m
+        labels:
+          severity: warning
+          service: crowdsec
+        annotations:
+          summary: "High number of CrowdSec bans"
+          description: "CrowdSec has {{ $value }} active bans. This may indicate an ongoing attack."
+
+      # Alert: Attack detected (scenario overflow)
+      - alert: CrowdsecAttackDetected
+        expr: rate(cs_bucket_overflowed_total[5m]) > 1
+        for: 2m
+        labels:
+          severity: warning
+          service: crowdsec
+        annotations:
+          summary: "CrowdSec detected attack patterns"
+          description: "CrowdSec is detecting attacks at rate {{ $value | printf \"%.2f\" }}/sec on {{ $labels.instance }}."
+
+      # Alert: High attack rate (serious attack)
+      - alert: CrowdsecHighAttackRate
+        expr: rate(cs_bucket_overflowed_total[5m]) > 10
+        for: 1m
+        labels:
+          severity: critical
+          service: crowdsec
+        annotations:
+          summary: "High attack rate detected by CrowdSec"
+          description: "CrowdSec detecting {{ $value | printf \"%.2f\" }} attacks/sec. Possible DDoS or coordinated attack."
+
+      # Alert: Parser errors (logs not being processed)
+      - alert: CrowdsecParserErrors
+        expr: (rate(cs_parsers_hits_total[5m]) - rate(cs_parsers_hits_ok_total[5m])) / rate(cs_parsers_hits_total[5m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          service: crowdsec
+        annotations:
+          summary: "CrowdSec parser errors"
+          description: "More than 10% of log lines are failing to parse. Check log format configuration."
+
+  # ===========================================
+  # Rate Limiting Alerts
+  # ===========================================
+  - name: rate_limiting_alerts
+    rules:
+      # Alert: Rate limiting triggered frequently
+      # Note: This requires custom nginx logging with rate limit status
+      # You may need to parse nginx logs with Loki/Promtail for this
+      - alert: RateLimitTriggeredFrequently
+        expr: |
+          sum(rate(nginx_http_requests_total{status="429"}[5m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+          service: nginx-waf
+        annotations:
+          summary: "Rate limiting triggered frequently"
+          description: "Rate limit (429) responses are high: {{ $value | printf \"%.2f\" }}/sec. Check for brute force attempts."
+
+  # ===========================================
+  # HTTP Error Alerts
+  # ===========================================
+  - name: http_error_alerts
+    rules:
+      # Alert: High 4xx error rate
+      - alert: HighClientErrorRate
+        expr: |
+          sum(rate(nginx_http_requests_total{status=~"4.."}[5m])) /
+          sum(rate(nginx_http_requests_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          service: nginx-waf
+        annotations:
+          summary: "High client error rate (4xx)"
+          description: "More than 10% of requests are returning 4xx errors."
+
+      # Alert: High 5xx error rate
+      - alert: HighServerErrorRate
+        expr: |
+          sum(rate(nginx_http_requests_total{status=~"5.."}[5m])) /
+          sum(rate(nginx_http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service: nginx-waf
+        annotations:
+          summary: "High server error rate (5xx)"
+          description: "More than 5% of requests are returning 5xx errors."
+
+      # Alert: WAF blocking many requests (403)
+      - alert: WafBlockingHighRate
+        expr: |
+          sum(rate(nginx_http_requests_total{status="403"}[5m])) > 50
+        for: 5m
+        labels:
+          severity: warning
+          service: nginx-waf
+        annotations:
+          summary: "WAF blocking many requests"
+          description: "WAF is blocking {{ $value | printf \"%.2f\" }} requests/sec. Possible attack or false positives."

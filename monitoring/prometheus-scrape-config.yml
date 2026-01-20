@@ -1,0 +1,95 @@
+# Prometheus Scrape Configuration for Nginx Security Stack
+# Add these jobs to your Prometheus prometheus.yml scrape_configs section
+
+# ===========================================
+# Copy this configuration to your Prometheus
+# ===========================================
+
+scrape_configs:
+  # -------------------------------------------
+  # Nginx WAF Metrics (via nginx-exporter)
+  # -------------------------------------------
+  - job_name: 'nginx-waf'
+    static_configs:
+      - targets: ['<nginx-security-host>:9113']
+        labels:
+          service: 'nginx-waf'
+          environment: 'production'
+    metrics_path: /metrics
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+    # Optional: relabel configs for consistent labeling
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+):\d+'
+        replacement: '${1}'
+
+  # -------------------------------------------
+  # CrowdSec Metrics
+  # -------------------------------------------
+  - job_name: 'crowdsec'
+    static_configs:
+      - targets: ['<nginx-security-host>:6060']
+        labels:
+          service: 'crowdsec'
+          environment: 'production'
+    metrics_path: /metrics
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+):\d+'
+        replacement: '${1}'
+
+# ===========================================
+# Key Metrics Reference
+# ===========================================
+#
+# NGINX EXPORTER (port 9113):
+# ---------------------------
+# nginx_connections_active    - Current active connections
+# nginx_connections_accepted  - Total accepted connections
+# nginx_connections_handled   - Total handled connections
+# nginx_connections_reading   - Connections reading request
+# nginx_connections_writing   - Connections writing response
+# nginx_connections_waiting   - Idle connections
+# nginx_http_requests_total   - Total HTTP requests
+# nginx_up                    - Nginx status (1 = up, 0 = down)
+#
+# CROWDSEC (port 6060):
+# ---------------------
+# cs_active_decisions{action,origin,reason}  - Active ban/captcha decisions
+# cs_alerts_total                            - Total alerts triggered
+# cs_parsers_hits_total                      - Log lines parsed
+# cs_parsers_hits_ok_total                   - Successfully parsed lines
+# cs_bucket_created_total                    - Scenario buckets created
+# cs_bucket_overflowed_total                 - Scenarios triggered (attacks)
+# cs_lapi_decisions_total                    - Decisions from LAPI
+# cs_lapi_machine_last_push                  - Last push timestamp
+# cs_lapi_route_requests_total               - API requests by route
+#
+# ===========================================
+# Example Queries for Grafana
+# ===========================================
+#
+# Request rate:
+#   rate(nginx_http_requests_total[5m])
+#
+# Active connections:
+#   nginx_connections_active
+#
+# Connection utilization:
+#   nginx_connections_active / nginx_connections_accepted
+#
+# CrowdSec active bans:
+#   cs_active_decisions{action="ban"}
+#
+# Attack rate (scenarios triggered):
+#   rate(cs_bucket_overflowed_total[5m])
+#
+# Parser efficiency:
+#   rate(cs_parsers_hits_ok_total[5m]) / rate(cs_parsers_hits_total[5m])
