@@ -94,25 +94,28 @@ curl http://localhost:6060/metrics  # CrowdSec
 | `BACKEND` | `app:3000` | Backend application address |
 | `MODSEC_RULE_ENGINE` | `On` | WAF mode: `On`, `DetectionOnly`, `Off` |
 | `PARANOIA` | `1` | OWASP CRS paranoia level (1-4) |
-| `CROWDSEC_BOUNCER_KEY` | - | CrowdSec bouncer API key |
-| `NGINX_HTTP_PORT` | `80` | Nginx HTTP port |
-| `NGINX_HTTPS_PORT` | `443` | Nginx HTTPS port |
+| `NGINX_HTTP_PORT` | `8080` | Nginx HTTP port |
+| `NGINX_HTTPS_PORT` | `8443` | Nginx HTTPS port |
 
 ### Rate Limiting
 
-Default rate limits configured in `config/nginx/nginx.conf`:
+Rate limits configured in `config/nginx/default.conf.template`:
 
 | Endpoint | Rate | Burst | Purpose |
 |----------|------|-------|---------|
-| `/api/auth/verify-otp` | 3/min | 2 | OTP verification |
-| `/api/auth/send-otp` | 3/min | 2 | OTP sending |
 | `/api/auth/login` | 5/min | 3 | Login attempts |
-| `/api/export`, `/api/reports` | 10/min | 5 | Heavy endpoints |
-| `/api/*` | 100/min | 50 | General API |
+| `/api/auth/verify-otp` | 5/min | 3 | OTP verification |
+| `/api/auth/send-otp` | 5/min | 3 | OTP sending |
+| `/api/*` | 100/min | 20 | General API |
+| `/graphql` | 100/min | 20 | GraphQL endpoint |
 
-To adjust rate limits, edit `config/nginx/nginx.conf`:
+To adjust rate limits, edit `config/nginx/default.conf.template`:
 ```nginx
-limit_req_zone $binary_remote_addr zone=api:10m rate=200r/m;  # Increase to 200/min
+# Change rate (requests per minute)
+limit_req_zone $binary_remote_addr zone=auth:10m rate=10r/m;  # Increase to 10/min
+
+# Change burst (allowed burst before limiting)
+limit_req zone=auth burst=5 nodelay;  # Allow 5 burst requests
 ```
 
 ### ModSecurity Rules
@@ -436,9 +439,7 @@ cloud-native-nginx/
 ├── .env.example                           # Environment template
 ├── config/
 │   ├── nginx/
-│   │   ├── nginx.conf                     # Main nginx config
-│   │   ├── security-headers.conf          # Security headers
-│   │   └── proxy-headers.conf             # Proxy headers
+│   │   └── default.conf.template          # Nginx config with rate limiting
 │   ├── modsecurity/
 │   │   ├── custom-rules.conf              # Custom WAF rules
 │   │   └── exclusions.conf                # Rule exclusions
