@@ -30,6 +30,9 @@ services:
       - PROXY_TIMEOUT=60
 
     volumes:
+      # Custom nginx config with rate limiting
+      - ./config/nginx/default.conf.template:/etc/nginx/templates/conf.d/default.conf.template:ro
+
       # Custom ModSecurity rules
       - ./config/modsecurity/custom-rules.conf:/etc/modsecurity.d/owasp-crs/rules/RESPONSE-999-CUSTOM.conf:ro
       - ./config/modsecurity/exclusions.conf:/etc/modsecurity.d/owasp-crs/rules/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf:ro
@@ -44,7 +47,7 @@ services:
       - crowdsec
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/healthz"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
