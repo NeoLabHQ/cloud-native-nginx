@@ -74,23 +74,6 @@ services:
     restart: unless-stopped
 
   # ===========================================
-  # CrowdSec Bouncer for Nginx
-  # ===========================================
-  crowdsec-bouncer:
-    image: crowdsecurity/nginx-bouncer:1.0.3
-    container_name: crowdsec-bouncer
-    environment:
-      - CROWDSEC_LAPI_URL=http://crowdsec:8080
-      - CROWDSEC_LAPI_KEY=${CROWDSEC_BOUNCER_KEY:-}
-    volumes:
-      - ./config/crowdsec-bouncer:/etc/crowdsec/bouncers:rw
-    networks:
-      - security-net
-    depends_on:
-      - crowdsec
-    restart: unless-stopped
-
-  # ===========================================
   # Nginx Prometheus Exporter (for CloudBankin)
   # ===========================================
   nginx-exporter:
