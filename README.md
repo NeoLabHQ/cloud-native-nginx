@@ -191,15 +191,6 @@ See `monitoring/prometheus-scrape-config.yml` for full configuration.
 - `cs_bucket_overflowed_total` - Attacks detected
 - `cs_alerts_total` - Total alerts
 
-### Recommended Alerts
-
-See `monitoring/alerting-rules.yml` for pre-configured alerts:
-- Nginx WAF down
-- CrowdSec unreachable
-- High attack rate
-- WAF blocking many requests
-- Rate limiting triggered frequently
-
 ## Troubleshooting
 
 ### How to Disable WAF (Emergency)
@@ -454,13 +445,10 @@ cloud-native-nginx/
 │   └── crowdsec/
 │       └── config.yaml.local              # CrowdSec config
 ├── monitoring/
-│   ├── prometheus-scrape-config.yml       # Prometheus config
-│   └── alerting-rules.yml                 # Alert rules
-├── scripts/
-│   ├── test-security.sh                   # Security tests
-│   └── test-false-positives.sh            # False positive tests
-├── certs/                                 # SSL certificates
-└── logs/                                  # Log files
+│   └── prometheus-scrape-config.yml       # Prometheus scrape config for CloudBankin
+└── scripts/
+    ├── test-security.sh                   # Security tests
+    └── test-false-positives.sh            # False positive tests
 ```
 
 ## Support
