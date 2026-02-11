@@ -156,6 +156,7 @@ services:
 
 networks:
   monitoring-net:
+    name: nginx-security-monitoring
     driver: bridge
 
 volumes:

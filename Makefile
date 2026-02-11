@@ -106,7 +106,7 @@ restart:
 start-monitoring:
 	docker compose -f docker-compose.monitoring.yml up -d
 	@echo "Connecting nginx-security to monitoring network..."
-	@docker network connect cloud-native-nginx_monitoring-net $(CONTAINER_NAME) 2>/dev/null || true
+	@docker network connect nginx-security-monitoring $(CONTAINER_NAME) 2>/dev/null || true
 	@echo "Waiting for monitoring services to start..."
 	@sleep 15
 	@$(MAKE) health-monitoring
