@@ -9,11 +9,13 @@ map $http_upgrade $connection_upgrade {
 }
 
 # ===== RATE LIMITING ZONES =====
+# $binary_remote_addr = per-IP tracking (4-byte IPv4 / 16-byte IPv6)
+# More memory-efficient than $remote_addr (stores binary IP, not string)
 
-# OTP/Login endpoints (strict - 5 req/min)
+# Auth/login endpoints (strict - 5 req/min per IP)
 limit_req_zone $binary_remote_addr zone=auth:10m rate=5r/m;
 
-# General API (100 req/min)
+# General API (100 req/min per IP)
 limit_req_zone $binary_remote_addr zone=api:10m rate=100r/m;
 
 # ===== HTTP SERVER =====
@@ -24,10 +26,24 @@ server {
     server_name ${SERVER_NAME};
     set $always_redirect ${NGINX_ALWAYS_TLS_REDIRECT};
 
+    # HTTPS backend: set PROXY_SSL=on to enable SSL proxy to backend
+    # Configurable via: PROXY_SSL_VERIFY, PROXY_SSL_PROTOCOLS, PROXY_SSL_CIPHERS
+    # Real IP (for future LB): set SET_REAL_IP_FROM=<lb-cidr>, REAL_IP_HEADER=X-Forwarded-For
     PROXY_SSL_CONFIG
 
-    # Auth endpoints (strict rate limiting)
-    location ~ ^/api/auth/(login|verify-otp|send-otp) {
+    # SNI support for HTTPS backends (sends hostname in TLS handshake)
+    proxy_ssl_server_name on;
+
+    # Buffer tuning for HTTPS backend overhead (SSL adds ~5KB per response header)
+    proxy_buffer_size 16k;
+    proxy_buffers 4 32k;
+    proxy_busy_buffers_size 64k;
+
+    # Auth endpoints: rate limiting for login, register, verify, OTP, authentication
+    # Matches any path containing auth-related keywords after /api/, e.g.:
+    #   /api/auth/login, /cloudbankin/api/v1/public/los/login,
+    #   /cloudbankin/api/v1/authentication, /api/v1/public/los/register-verify
+    location ~ ^.*?/api(?:/[^/]*)*/[^/]*(?:login|sign-?in|register|sign-?up|verify|otp|authentication)[^/]*(?:/.*)?$ {
         limit_req zone=auth burst=3 nodelay;
         limit_req_status 429;
 
@@ -71,6 +87,17 @@ server {
         root /usr/share/nginx/html;
     }
 
+    # Nginx metrics — restrict to internal/monitoring networks only
+    location /stub_status {
+        stub_status;
+        allow 127.0.0.0/8;      # localhost
+        allow 10.0.0.0/8;       # internal networks
+        allow 172.16.0.0/12;    # Docker bridge networks
+        allow 192.168.0.0/16;   # private networks
+        deny all;
+        access_log off;
+    }
+
     include includes/location_common.conf;
 
     # Custom 429 response
@@ -106,10 +133,24 @@ server {
     ssl_verify_client ${SSL_VERIFY};
     ssl_verify_depth ${SSL_VERIFY_DEPTH};
 
+    # HTTPS backend: set PROXY_SSL=on to enable SSL proxy to backend
+    # Configurable via: PROXY_SSL_VERIFY, PROXY_SSL_PROTOCOLS, PROXY_SSL_CIPHERS
+    # Real IP (for future LB): set SET_REAL_IP_FROM=<lb-cidr>, REAL_IP_HEADER=X-Forwarded-For
     PROXY_SSL_CONFIG
 
-    # Auth endpoints (strict rate limiting)
-    location ~ ^/api/auth/(login|verify-otp|send-otp) {
+    # SNI support for HTTPS backends (sends hostname in TLS handshake)
+    proxy_ssl_server_name on;
+
+    # Buffer tuning for HTTPS backend overhead (SSL adds ~5KB per response header)
+    proxy_buffer_size 16k;
+    proxy_buffers 4 32k;
+    proxy_busy_buffers_size 64k;
+
+    # Auth endpoints: rate limiting for login, register, verify, OTP, authentication
+    # Matches any path containing auth-related keywords after /api/, e.g.:
+    #   /api/auth/login, /cloudbankin/api/v1/public/los/login,
+    #   /cloudbankin/api/v1/authentication, /api/v1/public/los/register-verify
+    location ~ ^.*?/api(?:/[^/]*)*/[^/]*(?:login|sign-?in|register|sign-?up|verify|otp|authentication)[^/]*(?:/.*)?$ {
         limit_req zone=auth burst=3 nodelay;
         limit_req_status 429;
 
@@ -147,6 +188,17 @@ server {
 
         index index.html index.htm;
         root /usr/share/nginx/html;
+    }
+
+    # Nginx metrics — restrict to internal/monitoring networks only
+    location /stub_status {
+        stub_status;
+        allow 127.0.0.0/8;      # localhost
+        allow 10.0.0.0/8;       # internal networks
+        allow 172.16.0.0/12;    # Docker bridge networks
+        allow 192.168.0.0/16;   # private networks
+        deny all;
+        access_log off;
     }
 
     include includes/location_common.conf;

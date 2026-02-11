@@ -146,6 +146,89 @@ else
 fi
 echo ""
 
+echo "--- 9b. Cloudbankin URL Rate Limiting Tests ---"
+
+# Test /cloudbankin/api/v1/public/los/login is rate-limited
+echo "Testing rate limiting on /cloudbankin/api/v1/public/los/login..."
+echo -n "Requests: "
+RATE_LIMITED=0
+for i in {1..6}; do
+    RESULT=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${BASE_URL}/cloudbankin/api/v1/public/los/login" -k 2>/dev/null)
+    echo -n "$RESULT "
+    if [ "$RESULT" == "429" ]; then
+        RATE_LIMITED=1
+    fi
+done
+echo ""
+if [ "$RATE_LIMITED" == "1" ]; then
+    echo -e "${GREEN}[PASS]${NC} Cloudbankin login rate limiting triggered (429 returned)"
+    ((PASSED++))
+else
+    echo -e "${YELLOW}[WARN]${NC} Cloudbankin login rate limiting not triggered"
+    ((WARNINGS++))
+fi
+
+# Test /cloudbankin/api/v1/authentication is rate-limited
+echo "Testing rate limiting on /cloudbankin/api/v1/authentication..."
+echo -n "Requests: "
+RATE_LIMITED=0
+for i in {1..6}; do
+    RESULT=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${BASE_URL}/cloudbankin/api/v1/authentication" -k 2>/dev/null)
+    echo -n "$RESULT "
+    if [ "$RESULT" == "429" ]; then
+        RATE_LIMITED=1
+    fi
+done
+echo ""
+if [ "$RATE_LIMITED" == "1" ]; then
+    echo -e "${GREEN}[PASS]${NC} Cloudbankin authentication rate limiting triggered (429 returned)"
+    ((PASSED++))
+else
+    echo -e "${YELLOW}[WARN]${NC} Cloudbankin authentication rate limiting not triggered"
+    ((WARNINGS++))
+fi
+
+# Test /cloudbankin/api/v1/public/los/borrower-login-verify is rate-limited
+echo "Testing rate limiting on /cloudbankin/api/v1/public/los/borrower-login-verify..."
+echo -n "Requests: "
+RATE_LIMITED=0
+for i in {1..6}; do
+    RESULT=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${BASE_URL}/cloudbankin/api/v1/public/los/borrower-login-verify" -k 2>/dev/null)
+    echo -n "$RESULT "
+    if [ "$RESULT" == "429" ]; then
+        RATE_LIMITED=1
+    fi
+done
+echo ""
+if [ "$RATE_LIMITED" == "1" ]; then
+    echo -e "${GREEN}[PASS]${NC} Cloudbankin borrower-login-verify rate limiting triggered (429 returned)"
+    ((PASSED++))
+else
+    echo -e "${YELLOW}[WARN]${NC} Cloudbankin borrower-login-verify rate limiting not triggered"
+    ((WARNINGS++))
+fi
+
+# Verify /cloudbankin/api/v1/loans is NOT rate-limited at auth level
+echo "Verifying /cloudbankin/api/v1/loans is NOT auth-rate-limited..."
+echo -n "Requests: "
+AUTH_RATE_LIMITED=0
+for i in {1..6}; do
+    RESULT=$(curl -s -o /dev/null -w "%{http_code}" "${BASE_URL}/cloudbankin/api/v1/loans" -k 2>/dev/null)
+    echo -n "$RESULT "
+    if [ "$RESULT" == "429" ]; then
+        AUTH_RATE_LIMITED=1
+    fi
+done
+echo ""
+if [ "$AUTH_RATE_LIMITED" == "0" ]; then
+    echo -e "${GREEN}[PASS]${NC} /cloudbankin/api/v1/loans is NOT auth-rate-limited (correct)"
+    ((PASSED++))
+else
+    echo -e "${RED}[FAIL]${NC} /cloudbankin/api/v1/loans was auth-rate-limited (should only hit general API rate limit)"
+    ((FAILED++))
+fi
+echo ""
+
 echo "--- 10. Security Headers Test ---"
 echo "Checking security headers..."
 HEADERS=$(curl -sI "${BASE_URL}/" -k 2>/dev/null)
