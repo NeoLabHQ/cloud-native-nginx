@@ -1,0 +1,15 @@
+.git
+logs/
+docs/
+scripts/
+*.md
+.env*
+docker-compose*.yml
+Makefile
+certs/
+config/crowdsec/
+config/loki/
+config/promtail/
+config/grafana/
+monitoring/
+LICENSE

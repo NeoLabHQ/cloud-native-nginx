@@ -1,0 +1,165 @@
+# Monitoring stack — runs alongside the standalone nginx-security container
+# Reads logs from shared host volumes (./logs/)
+#
+# Usage:
+#   docker compose -f docker-compose.monitoring.yml up -d
+#   docker compose -f docker-compose.monitoring.yml --profile bouncer up -d  # with IP blocking
+#   docker compose -f docker-compose.monitoring.yml --profile grafana up -d  # with dashboards
+
+services:
+  # ===========================================
+  # Nginx Prometheus Exporter
+  # ===========================================
+  # Scrapes /stub_status from the nginx-security container.
+  # Requires: docker network connect <monitoring-net> nginx-security
+  # (handled automatically by 'make start-monitoring')
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:1.3.0
+    container_name: nginx-exporter
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - -nginx.scrape-uri=http://nginx-security:8080/stub_status
+    ports:
+      - "${NGINX_EXPORTER_PORT:-9113}:9113"
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 64M
+
+  # ===========================================
+  # CrowdSec - Intrusion Prevention System
+  # ===========================================
+  crowdsec:
+    image: crowdsecurity/crowdsec:v1.6.4
+    container_name: crowdsec
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - COLLECTIONS=crowdsecurity/nginx crowdsecurity/http-cve crowdsecurity/base-http-scenarios
+      - GID=${GID:-1000}
+    ports:
+      - "${CROWDSEC_METRICS_PORT:-6060}:6060"
+    volumes:
+      - ./config/crowdsec:/etc/crowdsec:rw
+      - crowdsec-data:/var/lib/crowdsec/data
+      - ./logs/nginx:/var/log/nginx:ro
+      - ./logs/modsecurity:/var/log/modsecurity:ro
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "cscli", "version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # ===========================================
+  # Loki - Log Aggregation
+  # ===========================================
+  loki:
+    image: grafana/loki:3.3.2
+    container_name: loki
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    volumes:
+      - ./config/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/loki-config.yml
+    networks:
+      - monitoring-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --output-document=- http://localhost:3100/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ===========================================
+  # Promtail - Log Collector
+  # ===========================================
+  promtail:
+    image: grafana/promtail:3.3.2
+    container_name: promtail
+    volumes:
+      - ./config/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - ./logs:/var/log/app:ro
+    command: -config.file=/etc/promtail/promtail-config.yml
+    networks:
+      - monitoring-net
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  # ===========================================
+  # CrowdSec Firewall Bouncer - IP Blocking (Optional)
+  # ===========================================
+  # NOTE: Requires manual API key generation after first CrowdSec start
+  # Run: docker exec crowdsec cscli bouncers add firewall-bouncer -o raw
+  # Then set CROWDSEC_BOUNCER_KEY in .env
+  #
+  # Limitation: iptables rules only affect the container's network namespace
+  # in bridge mode. For host-level blocking, additional iptables forwarding is needed.
+  crowdsec-bouncer:
+    image: crowdsecurity/firewall-bouncer:latest
+    container_name: crowdsec-bouncer
+    environment:
+      - CROWDSEC_LAPI_URL=http://crowdsec:8080
+      - CROWDSEC_BOUNCER_API_KEY=${CROWDSEC_BOUNCER_KEY:-changeme}
+      - MODE=iptables
+      - DISABLE_IPV6=true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    networks:
+      - monitoring-net
+    depends_on:
+      - crowdsec
+    restart: unless-stopped
+    profiles:
+      - bouncer
+
+  # ===========================================
+  # Grafana - Visualization (Optional)
+  # ===========================================
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks:
+      - monitoring-net
+    depends_on:
+      - loki
+    restart: unless-stopped
+    profiles:
+      - grafana
+
+networks:
+  monitoring-net:
+    name: nginx-security-monitoring
+    driver: bridge
+
+volumes:
+  crowdsec-data:
+  loki-data:
+  grafana-data:

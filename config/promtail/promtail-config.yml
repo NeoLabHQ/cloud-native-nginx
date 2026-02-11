@@ -1,0 +1,40 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Nginx access logs
+  - job_name: nginx-access
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: nginx
+          type: access
+          __path__: /var/log/app/nginx/access.log
+
+  # Nginx error logs
+  - job_name: nginx-error
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: nginx
+          type: error
+          __path__: /var/log/app/nginx/error.log
+
+  # ModSecurity audit logs (JSON format)
+  - job_name: modsecurity
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: modsecurity
+          type: audit
+          __path__: /var/log/app/modsecurity/audit.log

@@ -1,0 +1,34 @@
+# CrowdSec Local Configuration
+# This file overrides settings from the main config.yaml
+
+# Enable Prometheus metrics endpoint
+prometheus:
+  enabled: true
+  level: full  # full, aggregated, or off
+  listen_addr: 0.0.0.0
+  listen_port: 6060
+
+# API server configuration
+api:
+  server:
+    # Listen on all interfaces for Docker networking
+    listen_uri: 0.0.0.0:8080
+
+# Database configuration (using default SQLite)
+db_config:
+  type: sqlite
+  db_path: /var/lib/crowdsec/data/crowdsec.db
+
+# Configure what gets logged
+cscli:
+  output: human  # human, json, raw
+
+# Profiling (disable in production for performance)
+config_paths:
+  notification_dir: /etc/crowdsec/notifications/
+
+# Common API settings
+common:
+  daemonize: false
+  log_media: stdout
+  log_level: info
