@@ -16,7 +16,7 @@ services:
       - no-new-privileges:true
     environment:
       # Backend configuration
-      - BACKEND=${BACKEND:-http://localhost:3000}
+      - BACKEND=${BACKEND:-http://httpbin:80}
       - PORT=8080
       - SSL_PORT=8443
 
