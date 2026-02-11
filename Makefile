@@ -15,7 +15,7 @@ help:
 	@echo "  make stop-standalone      - Stop standalone container"
 	@echo "  make health-standalone    - Check standalone container health"
 	@echo ""
-	@echo "  Development (docker-compose with httpbin):"
+	@echo "  Development (docker compose with httpbin):"
 	@echo "  make start                - Start all core services"
 	@echo "  make stop                 - Stop all services"
 	@echo "  make restart              - Restart all services"
@@ -84,27 +84,27 @@ health-standalone:
 	@curl -sf http://localhost:8080/healthz > /dev/null 2>&1 && echo "nginx-security: OK" || echo "nginx-security: FAIL"
 
 # ===========================================
-# Development (docker-compose)
+# Development (docker compose)
 # ===========================================
 
 start:
-	docker-compose up -d nginx-waf crowdsec nginx-exporter httpbin
+	docker compose up -d nginx-waf crowdsec nginx-exporter httpbin
 	@echo "Waiting for services to start..."
 	@sleep 15
 	@$(MAKE) health
 
 stop:
-	docker-compose down
+	docker compose down
 
 restart:
-	docker-compose restart nginx-waf crowdsec nginx-exporter
+	docker compose restart nginx-waf crowdsec nginx-exporter
 
 # ===========================================
 # Monitoring Stack
 # ===========================================
 
 start-monitoring:
-	docker compose -f docker-compose.monitoring.yml up -d
+	docker compose -f docker compose.monitoring.yml up -d
 	@echo "Connecting nginx-security to monitoring network..."
 	@docker network connect cloud-native-nginx_monitoring-net $(CONTAINER_NAME) 2>/dev/null || true
 	@echo "Waiting for monitoring services to start..."
@@ -112,7 +112,7 @@ start-monitoring:
 	@$(MAKE) health-monitoring
 
 stop-monitoring:
-	docker compose -f docker-compose.monitoring.yml down
+	docker compose -f docker compose.monitoring.yml down
 
 health-monitoring:
 	@echo "Checking monitoring health..."
@@ -138,14 +138,14 @@ test-false-pos:
 # ===========================================
 
 logs:
-	docker-compose logs -f nginx-waf
+	docker compose logs -f nginx-waf
 
 logs-audit:
 	@docker exec nginx-waf tail -f /var/log/modsecurity/audit.log 2>/dev/null | jq . || \
 		docker exec nginx-waf tail -f /var/log/modsecurity/audit.log
 
 status:
-	docker-compose ps
+	docker compose ps
 
 # ===========================================
 # CrowdSec operations
@@ -158,7 +158,7 @@ unban-all:
 	docker exec crowdsec cscli decisions delete --all
 
 # ===========================================
-# Health checks (docker-compose mode)
+# Health checks (docker compose mode)
 # ===========================================
 
 health:
@@ -172,5 +172,5 @@ health:
 # ===========================================
 
 clean:
-	docker-compose down -v
+	docker compose down -v
 	rm -rf logs/nginx/* logs/modsecurity/*
