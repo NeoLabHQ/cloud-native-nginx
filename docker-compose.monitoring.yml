@@ -2,9 +2,14 @@
 # Reads logs from shared host volumes (./logs/)
 #
 # Usage:
-#   docker compose -f docker-compose.monitoring.yml up -d
-#   docker compose -f docker-compose.monitoring.yml --profile bouncer up -d  # with IP blocking
-#   docker compose -f docker-compose.monitoring.yml --profile grafana up -d  # with dashboards
+#   Standalone (full stack):
+#     docker compose -f docker-compose.monitoring.yml --profile standalone up -d
+#   External (connect to provider's Loki/Prometheus):
+#     LOKI_URL=https://loki.provider.com/loki/api/v1/push docker compose -f docker-compose.monitoring.yml up -d
+#   With Grafana dashboards:
+#     docker compose -f docker-compose.monitoring.yml --profile standalone --profile grafana up -d
+#   With CrowdSec bouncer:
+#     docker compose -f docker-compose.monitoring.yml --profile standalone --profile bouncer up -d
 
 services:
   # ===========================================
@@ -68,11 +73,13 @@ services:
           memory: 128M
 
   # ===========================================
-  # Loki - Log Aggregation
+  # Loki - Log Aggregation (standalone mode only)
   # ===========================================
   loki:
     image: grafana/loki:3.3.2
     container_name: loki
+    profiles:
+      - standalone
     ports:
       - "${LOKI_PORT:-3100}:3100"
     volumes:
@@ -98,11 +105,12 @@ services:
     volumes:
       - ./config/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
       - ./logs:/var/log/app:ro
-    command: -config.file=/etc/promtail/promtail-config.yml
+    command: -config.file=/etc/promtail/promtail-config.yml -config.expand-env=true
+    environment:
+      - LOKI_URL=${LOKI_URL:-http://loki:3100/loki/api/v1/push}
+      - LOKI_TENANT_ID=${LOKI_TENANT_ID:-}
     networks:
       - monitoring-net
-    depends_on:
-      - loki
     restart: unless-stopped
 
   # ===========================================
@@ -148,8 +156,6 @@ services:
       - grafana-data:/var/lib/grafana
     networks:
       - monitoring-net
-    depends_on:
-      - loki
     restart: unless-stopped
     profiles:
       - grafana

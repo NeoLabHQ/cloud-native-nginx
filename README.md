@@ -87,17 +87,21 @@ make stop           # Stop everything
 
 ## Add Monitoring (Optional)
 
-The monitoring stack runs as separate containers alongside the main image:
+The monitoring stack runs as separate containers alongside the main image. Two modes are available:
+
+### Standalone Mode (full stack)
+
+Deploys Loki + Promtail + CrowdSec + nginx-exporter locally:
 
 ```bash
-# Start CrowdSec + Loki + Promtail + nginx-exporter
-docker compose -f docker-compose.monitoring.yml up -d
+# Start full monitoring stack
+make start-monitoring
 
 # With Grafana dashboards
-docker compose -f docker-compose.monitoring.yml --profile grafana up -d
+docker compose -f docker-compose.monitoring.yml --profile standalone --profile grafana up -d
 
 # With CrowdSec firewall bouncer (IP blocking)
-docker compose -f docker-compose.monitoring.yml --profile bouncer up -d
+docker compose -f docker-compose.monitoring.yml --profile standalone --profile bouncer up -d
 
 # Check health
 make health-monitoring
@@ -106,25 +110,40 @@ make health-monitoring
 make stop-monitoring
 ```
 
-Monitoring services share logs via host-mounted `./logs/` volume.
+### External Mode (connect to provider's Loki/Prometheus)
 
-**Ports**: nginx-exporter (9113), CrowdSec (6060), Loki (3100), Grafana (3000)
-
-### Connect to Existing Grafana (Loki Data Source)
-
-If Cloudbankin already has Grafana, add Loki as a data source instead of running a separate Grafana:
+When the provider already has Loki + Prometheus + Grafana deployed, use external mode. Only Promtail, nginx-exporter, and CrowdSec are started — Loki and Grafana are **not** deployed.
 
 ```bash
-# Start monitoring without Grafana
-docker compose -f docker-compose.monitoring.yml up -d
+# Set external Loki URL in .env or export it
+export LOKI_URL=https://loki.provider.com/loki/api/v1/push
+export LOKI_TENANT_ID=nginx-security  # optional, if multi-tenant Loki
+
+# Start external monitoring
+make start-monitoring-external
+
+# Check health
+make health-monitoring-external
+
+# Stop
+make stop-monitoring
 ```
 
-In your existing Grafana, add data source:
-- **Type**: Loki
-- **URL**: `http://<monitoring-host>:3100`
-- **Access**: Server
+- **Promtail** sends logs to the external Loki at `LOKI_URL`
+- **nginx-exporter** exposes metrics on port 9113 for the external Prometheus to scrape
+- **CrowdSec** exposes metrics on port 6060 for the external Prometheus to scrape
 
-Example queries:
+Add the Prometheus scrape targets from `monitoring/prometheus-scrape-config.yml` to the provider's Prometheus config.
+
+### Import Grafana Dashboard
+
+A pre-built dashboard is available at `monitoring/dashboards/nginx-security.json`. Import it into the provider's Grafana — see [monitoring/dashboards/README.md](monitoring/dashboards/README.md) for instructions.
+
+**Ports**: nginx-exporter (9113), CrowdSec (6060), Loki (3100, standalone only), Grafana (3000, standalone only)
+
+### Loki Queries
+
+Example queries for Grafana:
 - All blocked requests: `{job="nginx", type="access"} |= "403"`
 - ModSecurity audit events: `{job="modsecurity"}`
 - Rate-limited requests: `{job="nginx", type="access"} |= "429"`
@@ -279,8 +298,14 @@ cloud-native-nginx/
 ├── logs/                               # Shared log volume
 │   ├── nginx/
 │   └── modsecurity/
-└── monitoring/
-    └── prometheus-scrape-config.yml    # Prometheus config template
+├── monitoring/
+│   ├── prometheus-scrape-config.yml    # Prometheus config template
+│   └── dashboards/
+│       ├── nginx-security.json         # Grafana dashboard (importable)
+│       └── README.md                   # Dashboard import instructions
+└── .github/
+    └── workflows/
+        └── ci.yml                      # CI/CD pipeline
 ```
 
 ## Docs
