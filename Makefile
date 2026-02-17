@@ -124,6 +124,8 @@ start-monitoring-external:
 	fi
 	@echo "Starting external monitoring mode..."
 	@echo "  Loki URL: $$(echo '$(LOKI_URL)' | sed -E 's|://[^@]*@|://***@|')"
+	@docker compose -f docker-compose.monitoring.yml stop loki grafana 2>/dev/null || true
+	@docker compose -f docker-compose.monitoring.yml rm -f loki grafana 2>/dev/null || true
 	docker compose -f docker-compose.monitoring.yml up -d nginx-exporter crowdsec promtail
 	@echo "Connecting nginx-security to monitoring network..."
 	@docker network connect nginx-security-monitoring $(CONTAINER_NAME) 2>/dev/null || true
