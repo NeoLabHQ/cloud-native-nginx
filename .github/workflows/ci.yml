@@ -30,7 +30,7 @@ jobs:
           load: true
           tags: ${{ env.IMAGE_NAME }}:test
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-to: ${{ github.event.pull_request.head.repo.fork != true && 'type=gha,mode=max' || '' }}
 
       - name: Start test environment
         run: |
