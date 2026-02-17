@@ -36,13 +36,10 @@ jobs:
         run: |
           docker network create test-net
           docker run -d --name httpbin --network test-net kennethreitz/httpbin:latest
-          mkdir -p logs/nginx logs/modsecurity
           docker run -d --name nginx-security \
             --network test-net \
             -e BACKEND=http://httpbin:80 \
             -p 8080:8080 \
-            -v ${{ github.workspace }}/logs/nginx:/var/log/nginx \
-            -v ${{ github.workspace }}/logs/modsecurity:/var/log/modsecurity \
             ${{ env.IMAGE_NAME }}:test
           echo "Waiting for nginx to start..."
           sleep 15
