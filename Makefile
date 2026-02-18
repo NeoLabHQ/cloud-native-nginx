@@ -1,6 +1,3 @@
--include .env
-export
-
 .PHONY: help build run run-ssl stop-standalone health-standalone start stop restart test test-security test-false-pos logs logs-audit status bans unban-all health clean start-monitoring stop-monitoring health-monitoring start-monitoring-external health-monitoring-external
 
 IMAGE_NAME ?= neolab/nginx-security
