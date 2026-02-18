@@ -109,7 +109,7 @@ restart:
 # ===========================================
 
 start-monitoring:
-	docker compose -f docker-compose.monitoring.yml --profile standalone up -d
+	docker compose -f docker-compose.monitoring.yml --profile standalone --profile grafana up -d
 	@echo "Connecting nginx-security to monitoring network..."
 	@docker network connect nginx-security-monitoring $(CONTAINER_NAME) 2>/dev/null || true
 	@echo "Waiting for monitoring services to start..."
@@ -134,7 +134,7 @@ start-monitoring-external:
 	@$(MAKE) health-monitoring-external
 
 stop-monitoring:
-	docker compose -f docker-compose.monitoring.yml --profile standalone down
+	docker compose -f docker-compose.monitoring.yml --profile standalone --profile grafana down
 	docker compose -f docker-compose.monitoring.yml down
 
 health-monitoring:
@@ -142,6 +142,7 @@ health-monitoring:
 	@curl -sf http://localhost:9113/metrics > /dev/null 2>&1 && echo "nginx-exporter: OK" || echo "nginx-exporter: FAIL"
 	@curl -sf http://localhost:6060/metrics > /dev/null 2>&1 && echo "crowdsec: OK" || echo "crowdsec: FAIL"
 	@curl -sf http://localhost:3100/ready > /dev/null 2>&1 && echo "loki: OK" || echo "loki: FAIL"
+	@curl -sf http://localhost:3000/api/health > /dev/null 2>&1 && echo "grafana: OK" || echo "grafana: FAIL"
 
 health-monitoring-external:
 	@echo "Checking monitoring health (external)..."
