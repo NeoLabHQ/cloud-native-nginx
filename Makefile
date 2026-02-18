@@ -1,4 +1,4 @@
-.PHONY: help build run run-ssl stop-standalone health-standalone start stop restart test test-security test-false-pos logs logs-audit status bans unban-all health clean start-monitoring stop-monitoring health-monitoring
+.PHONY: help build run run-ssl stop-standalone health-standalone start stop restart test test-security test-false-pos logs logs-audit status bans unban-all health clean start-monitoring stop-monitoring health-monitoring start-monitoring-external health-monitoring-external
 
 IMAGE_NAME ?= neolab/nginx-security
 IMAGE_TAG ?= latest
@@ -21,9 +21,11 @@ help:
 	@echo "  make restart              - Restart all services"
 	@echo ""
 	@echo "  Monitoring (optional add-on):"
-	@echo "  make start-monitoring     - Start monitoring stack"
-	@echo "  make stop-monitoring      - Stop monitoring stack"
-	@echo "  make health-monitoring    - Check monitoring health"
+	@echo "  make start-monitoring          - Start full monitoring stack (standalone)"
+	@echo "  make start-monitoring-external - Start monitoring (external Loki/Prometheus)"
+	@echo "  make stop-monitoring           - Stop monitoring stack"
+	@echo "  make health-monitoring         - Check monitoring health (standalone)"
+	@echo "  make health-monitoring-external - Check monitoring health (external)"
 	@echo ""
 	@echo "  Testing:"
 	@echo "  make test                 - Run all tests"
@@ -104,21 +106,47 @@ restart:
 # ===========================================
 
 start-monitoring:
-	docker compose -f docker-compose.monitoring.yml up -d
+	docker compose -f docker-compose.monitoring.yml --profile standalone --profile grafana up -d
 	@echo "Connecting nginx-security to monitoring network..."
 	@docker network connect nginx-security-monitoring $(CONTAINER_NAME) 2>/dev/null || true
 	@echo "Waiting for monitoring services to start..."
 	@sleep 15
 	@$(MAKE) health-monitoring
 
+start-monitoring-external:
+	@if [ -z "$(LOKI_URL)" ]; then \
+		echo "ERROR: LOKI_URL is not set."; \
+		echo "Set it in .env or export it: export LOKI_URL=https://loki.provider.com/loki/api/v1/push"; \
+		exit 1; \
+	fi
+	@echo "Starting external monitoring mode..."
+	@echo "  Loki URL: $$(echo '$(LOKI_URL)' | sed -E 's|://[^@]*@|://***@|')"
+	@docker compose -f docker-compose.monitoring.yml stop loki grafana 2>/dev/null || true
+	@docker compose -f docker-compose.monitoring.yml rm -f loki grafana 2>/dev/null || true
+	docker compose -f docker-compose.monitoring.yml up -d nginx-exporter crowdsec promtail
+	@echo "Connecting nginx-security to monitoring network..."
+	@docker network connect nginx-security-monitoring $(CONTAINER_NAME) 2>/dev/null || true
+	@echo "Waiting for monitoring services to start..."
+	@sleep 15
+	@$(MAKE) health-monitoring-external
+
 stop-monitoring:
+	docker compose -f docker-compose.monitoring.yml --profile standalone --profile grafana down
 	docker compose -f docker-compose.monitoring.yml down
 
 health-monitoring:
-	@echo "Checking monitoring health..."
+	@echo "Checking monitoring health (standalone)..."
 	@curl -sf http://localhost:9113/metrics > /dev/null 2>&1 && echo "nginx-exporter: OK" || echo "nginx-exporter: FAIL"
 	@curl -sf http://localhost:6060/metrics > /dev/null 2>&1 && echo "crowdsec: OK" || echo "crowdsec: FAIL"
 	@curl -sf http://localhost:3100/ready > /dev/null 2>&1 && echo "loki: OK" || echo "loki: FAIL"
+	@curl -sf http://localhost:3000/api/health > /dev/null 2>&1 && echo "grafana: OK" || echo "grafana: FAIL"
+
+health-monitoring-external:
+	@echo "Checking monitoring health (external)..."
+	@curl -sf http://localhost:9113/metrics > /dev/null 2>&1 && echo "nginx-exporter: OK" || echo "nginx-exporter: FAIL"
+	@curl -sf http://localhost:6060/metrics > /dev/null 2>&1 && echo "crowdsec: OK" || echo "crowdsec: FAIL"
+	@docker ps --format '{{.Names}}' | grep -q promtail && echo "promtail: RUNNING" || echo "promtail: NOT RUNNING"
+	@docker ps --format '{{.Names}}' | grep -q loki && echo "WARNING: loki is running (should not be in external mode)" || echo "loki: NOT RUNNING (expected)"
 
 # ===========================================
 # Testing
