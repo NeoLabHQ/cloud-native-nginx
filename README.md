@@ -1,314 +1,185 @@
 # Nginx Security Stack
 
-Production-ready security layer for web applications. Single Docker image with WAF, rate limiting, and OWASP protection.
+Reverse proxy with built-in WAF, rate limiting, and OWASP protection. Single Docker image — put it in front of your backend.
 
-**Features**:
-- OWASP ModSecurity CRS v4 (WAF with 15 custom rules)
-- Rate limiting per IP (auth: 5 req/min, API: 100 req/min)
-- SQL injection, XSS, SSRF, path traversal protection
-- Scanner/bot detection (sqlmap, nikto, nmap, burpsuite)
-- HTTPS backend proxy support (for backends on HTTPS:8443)
-- JSON audit logging for all blocked requests
-- Optional monitoring: CrowdSec IPS, Loki, Grafana
+## 1. Run
 
-## Prerequisites
-
-- Docker 20.10+
-- 512MB RAM minimum (1GB recommended with monitoring)
-- SSL certificates (for HTTPS termination, optional)
-
-## Quick Start
+The only required setting is `BACKEND` — the URL of your application.
 
 ```bash
-# 1. Build the image
-make build
-
-# 2. Run with your backend
 docker run -d --name nginx-security \
   -e BACKEND=http://your-app:3000 \
   -p 80:8080 \
-  neolab/nginx-security
+  viktorpalchynskyi/nginx-security
+```
 
-# 3. Verify
+Check that it works:
+
+```bash
 curl http://localhost/healthz
 ```
 
-### Cloudbankin Deployment (HTTPS backend)
+Done. WAF and rate limiting are enabled by default.
 
-```bash
-docker run -d --name nginx-security \
-  -e BACKEND=https://paapapayperf.uat.cloudbankin.com:8443 \
-  -e PROXY_SSL=on \
-  -e PROXY_SSL_VERIFY=off \
-  -p 80:8080 -p 443:8443 \
-  neolab/nginx-security
-```
+## 2. Add HTTPS (optional)
 
-### With SSL Termination
+Provide your SSL certificate and key:
 
 ```bash
 docker run -d --name nginx-security \
   -e BACKEND=http://your-app:3000 \
-  -p 80:8080 -p 443:8443 \
+  -e NGINX_ALWAYS_TLS_REDIRECT=on \
   -v /path/to/fullchain.pem:/etc/nginx/certs/fullchain.pem:ro \
   -v /path/to/privkey.pem:/etc/nginx/certs/privkey.pem:ro \
-  neolab/nginx-security
+  -p 80:8080 -p 443:8443 \
+  viktorpalchynskyi/nginx-security
 ```
 
-## Development Mode
-
-Uses docker-compose with httpbin test backend:
+If your backend is on HTTPS, add:
 
 ```bash
-cp .env.example .env
-make start          # Starts nginx-waf + crowdsec + httpbin
-make test           # Run security + false positive tests
-make stop           # Stop everything
+  -e BACKEND=https://your-app:8443 \
+  -e PROXY_SSL=on \
 ```
 
-## Environment Variables
+## 3. Add Monitoring with Grafana (optional)
+
+Starts Loki + Promtail + Grafana + nginx-exporter + CrowdSec alongside the nginx-security container.
+
+**With make:**
+
+```bash
+make start-monitoring
+```
+
+**With docker compose:**
+
+```bash
+docker compose -f docker-compose.monitoring.yml --profile standalone --profile grafana up -d
+docker network connect nginx-security-monitoring nginx-security
+```
+
+After startup:
+
+1. Open Grafana at `http://localhost:3000` (login: `admin` / `admin`)
+2. Go to **Dashboards** → **Import** → upload [`monitoring/dashboards/nginx-security.json`](monitoring/dashboards/nginx-security.json)
+3. Select **Prometheus** and **Loki** data sources when prompted
+
+Check health:
+
+```bash
+make health-monitoring
+```
+
+Stop:
+
+```bash
+make stop-monitoring
+```
+
+### Connect to an Existing Grafana
+
+If you already have Grafana, Prometheus, and Loki — use external mode. Only Promtail, nginx-exporter, and CrowdSec are started.
+
+**With make:**
+
+```bash
+# Set your Loki URL in .env or export it
+export LOKI_URL=https://your-loki:3100/loki/api/v1/push
+
+make start-monitoring-external
+```
+
+**With docker compose:**
+
+```bash
+export LOKI_URL=https://your-loki:3100/loki/api/v1/push
+
+docker compose -f docker-compose.monitoring.yml up -d nginx-exporter crowdsec promtail
+docker network connect nginx-security-monitoring nginx-security
+```
+
+Then add scrape targets to your Prometheus (see [`monitoring/prometheus-scrape-config.yml`](monitoring/prometheus-scrape-config.yml)):
+
+```yaml
+scrape_configs:
+  - job_name: 'nginx-waf'
+    static_configs:
+      - targets: ['<nginx-security-host>:9113']
+  - job_name: 'crowdsec'
+    static_configs:
+      - targets: ['<nginx-security-host>:6060']
+```
+
+Import the dashboard [`monitoring/dashboards/nginx-security.json`](monitoring/dashboards/nginx-security.json) into your Grafana.
+
+### Useful Loki Queries
+
+```
+{job="nginx", type="access"} |= "403"    # Blocked by WAF
+{job="nginx", type="access"} |= "429"    # Rate limited
+{job="modsecurity"}                       # WAF audit events
+```
+
+## Reference
+
+### Environment Variables
+
+All variables have sensible defaults. You only need to set `BACKEND`.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BACKEND` | `http://localhost:80` | Backend URL to proxy to |
+| **Core** | | |
+| `BACKEND` | `http://localhost:80` | **Required.** Backend URL to proxy to |
 | `PORT` | `8080` | HTTP listen port |
 | `SSL_PORT` | `8443` | HTTPS listen port |
 | `SERVER_NAME` | `_` | Nginx server_name |
-| `MODSEC_RULE_ENGINE` | `On` | WAF mode: `On`, `DetectionOnly`, `Off` |
-| `PARANOIA` | `1` | OWASP CRS paranoia level (1-4, higher = stricter) |
+| `PROXY_TIMEOUT` | `60` | Backend proxy timeout (seconds) |
+| `SERVER_TOKENS` | `off` | Show nginx version in headers (`on`/`off`) |
+| **WAF** | | |
+| `MODSEC_RULE_ENGINE` | `On` | `On` = blocking, `DetectionOnly` = logging only, `Off` = disabled |
+| `PARANOIA` | `1` | OWASP CRS paranoia level 1-4 (higher = stricter) |
 | `ANOMALY_INBOUND` | `5` | Inbound anomaly score threshold |
 | `ANOMALY_OUTBOUND` | `4` | Outbound anomaly score threshold |
-| `PROXY_TIMEOUT` | `60` | Backend proxy timeout (seconds) |
+| `MODSEC_AUDIT_LOG` | `/var/log/modsecurity/audit.log` | Path to WAF audit log |
+| `MODSEC_AUDIT_LOG_FORMAT` | `JSON` | Audit log format (`JSON` or `Native`) |
+| **HTTPS backend** | | |
 | `PROXY_SSL` | `off` | Enable SSL to backend (`on`/`off`) |
-| `PROXY_SSL_VERIFY` | `off` | Verify backend SSL cert (`on`/`off`) |
+| `PROXY_SSL_VERIFY` | `off` | Verify backend SSL certificate (`on`/`off`) |
 | `PROXY_SSL_PROTOCOLS` | `TLSv1.2 TLSv1.3` | Allowed SSL protocols to backend |
-| `SET_REAL_IP_FROM` | — | Trusted proxy CIDR (for LB/CDN) |
+| **Real IP** | | |
+| `SET_REAL_IP_FROM` | — | Trusted proxy CIDR for LB/CDN (e.g. `10.0.0.0/8`) |
 | `REAL_IP_HEADER` | `X-Forwarded-For` | Header containing real client IP |
+| **SSL termination** | | |
+| `SSL_CERT_FILE` | `/etc/nginx/certs/fullchain.pem` | Path to SSL certificate |
+| `SSL_CERT_KEY_FILE` | `/etc/nginx/certs/privkey.pem` | Path to SSL private key |
+| `SSL_PROTOCOLS` | `TLSv1.2 TLSv1.3` | Allowed TLS protocols |
+| `SSL_CIPHERS` | *(base image default)* | Allowed SSL ciphers |
+| `SSL_PREFER_CIPHERS` | `on` | Prefer server ciphers over client (`on`/`off`) |
+| `SSL_DH_BITS` | `2048` | DH parameters size (`2048` or `4096`) |
+| `SSL_OCSP_STAPLING` | `on` | OCSP stapling (`on`/`off`) |
+| `SSL_VERIFY` | `off` | Verify client certificate (`on`/`off`) |
+| `SSL_VERIFY_DEPTH` | `1` | Client certificate chain verification depth |
+| `NGINX_ALWAYS_TLS_REDIRECT` | `off` | Redirect all HTTP to HTTPS (`on`/`off`) |
 
-## Add Monitoring (Optional)
+### Volumes
 
-The monitoring stack runs as separate containers alongside the main image. Two modes are available:
+All optional. The image works out of the box.
 
-### Standalone Mode (full stack)
+| Container Path | What It Does |
+|----------------|-------------|
+| `/etc/nginx/certs/` | SSL certificates for HTTPS termination |
+| `/var/log/nginx/` | Nginx access and error logs |
+| `/var/log/modsecurity/` | WAF audit logs (JSON) |
+| `/etc/nginx/templates/conf.d/default.conf.template` | Custom nginx config (override rate limits, locations) |
+| `/etc/modsecurity.d/owasp-crs/rules/RESPONSE-999-CUSTOM.conf` | Custom WAF rules |
+| `/etc/modsecurity.d/owasp-crs/rules/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf` | WAF rule exclusions (false positive fixes) |
 
-Deploys Loki + Promtail + CrowdSec + nginx-exporter locally:
+### Ports
 
-```bash
-# Start full monitoring stack
-make start-monitoring
-
-# With Grafana dashboards
-docker compose -f docker-compose.monitoring.yml --profile standalone --profile grafana up -d
-
-# With CrowdSec firewall bouncer (IP blocking)
-docker compose -f docker-compose.monitoring.yml --profile standalone --profile bouncer up -d
-
-# Check health
-make health-monitoring
-
-# Stop
-make stop-monitoring
-```
-
-### External Mode (connect to provider's Loki/Prometheus)
-
-When the provider already has Loki + Prometheus + Grafana deployed, use external mode. Only Promtail, nginx-exporter, and CrowdSec are started — Loki and Grafana are **not** deployed.
-
-```bash
-# Set external Loki URL in .env or export it
-export LOKI_URL=https://loki.provider.com/loki/api/v1/push
-export LOKI_TENANT_ID=nginx-security  # optional, if multi-tenant Loki
-
-# Start external monitoring
-make start-monitoring-external
-
-# Check health
-make health-monitoring-external
-
-# Stop
-make stop-monitoring
-```
-
-- **Promtail** sends logs to the external Loki at `LOKI_URL`
-- **nginx-exporter** exposes metrics on port 9113 for the external Prometheus to scrape
-- **CrowdSec** exposes metrics on port 6060 for the external Prometheus to scrape
-
-Add the Prometheus scrape targets from `monitoring/prometheus-scrape-config.yml` to the provider's Prometheus config.
-
-### Import Grafana Dashboard
-
-A pre-built dashboard is available at `monitoring/dashboards/nginx-security.json`. Import it into the provider's Grafana — see [monitoring/dashboards/README.md](monitoring/dashboards/README.md) for instructions.
-
-**Ports**: nginx-exporter (9113), CrowdSec (6060), Loki (3100, standalone only), Grafana (3000, standalone only)
-
-### Loki Queries
-
-Example queries for Grafana:
-- All blocked requests: `{job="nginx", type="access"} |= "403"`
-- ModSecurity audit events: `{job="modsecurity"}`
-- Rate-limited requests: `{job="nginx", type="access"} |= "429"`
-
-## Configuration Reference
-
-### Paranoia Levels
-
-| Level | Description | Use Case |
-|-------|-------------|----------|
-| 1 | Standard detection, minimal false positives | Production (default) |
-| 2 | Extended detection, some false positives | Sensitive APIs |
-| 3 | Aggressive detection, more false positives | High-security |
-| 4 | Maximum detection, many false positives | Testing/audit only |
-
-### Rate Limiting
-
-| Zone | Rate | Burst | Endpoints |
-|------|------|-------|-----------|
-| `auth` | 5 req/min | 3 | Login, register, verify, OTP, authentication |
-| `api` | 100 req/min | 20 | `/api/*`, `/graphql` |
-
-Auth rate limiting matches Cloudbankin URL patterns:
-- `/api/auth/login`
-- `/cloudbankin/api/v1/public/los/login`
-- `/cloudbankin/api/v1/authentication`
-- `/cloudbankin/api/v1/public/los/borrower-login-verify`
-
-### Custom WAF Rules (15 rules)
-
-- Advanced SQL injection detection
-- XSS (script, javascript:, event handlers)
-- Command injection with path traversal
-- Path traversal (plain, URL-encoded, double-encoded)
-- Sensitive file access (.env, .git, /etc/passwd)
-- Null byte injection
-- Scanner/bot User-Agent detection
-- SSRF protection (internal IPs, cloud metadata)
-- HTTP method restriction (GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD)
-
-## Verification
-
-```bash
-# Health check
-curl http://localhost:8080/healthz
-
-# WAF test (should return 403)
-curl "http://localhost:8080/?id=1'+OR+'1'='1"
-
-# Rate limit test (6th request should return 429)
-for i in {1..6}; do
-  curl -s -o /dev/null -w "%{http_code} " -X POST http://localhost:8080/api/auth/login
-done
-
-# Run full test suite (requires development mode)
-make test-security
-make test-false-pos
-```
-
-## Troubleshooting
-
-### False Positives (Legitimate Requests Blocked)
-
-```bash
-# 1. Check which rule is blocking
-docker exec nginx-waf tail -100 /var/log/modsecurity/audit.log | jq '.transaction.messages[].ruleId'
-
-# 2. Add exclusion to config/modsecurity/exclusions.conf:
-# SecRuleRemoveById <rule_id>
-
-# 3. Rebuild image
-make build
-```
-
-### Emergency WAF Disable
-
-```bash
-# Switch to detection-only mode (logs but doesn't block)
-docker run -d --name nginx-security \
-  -e BACKEND=http://your-app:3000 \
-  -e MODSEC_RULE_ENGINE=DetectionOnly \
-  -p 80:8080 \
-  neolab/nginx-security
-
-# Disable WAF completely
-# -e MODSEC_RULE_ENGINE=Off
-```
-
-### Load Balancer / CDN Configuration
-
-When behind a load balancer, set these to get real client IPs for rate limiting:
-
-```bash
-docker run -d --name nginx-security \
-  -e BACKEND=http://your-app:3000 \
-  -e SET_REAL_IP_FROM=10.0.0.0/8 \
-  -e REAL_IP_HEADER=X-Forwarded-For \
-  -p 80:8080 \
-  neolab/nginx-security
-```
-
-## Architecture
-
-```
-                    ┌─────────────────────────────────────────┐
-                    │         neolab/nginx-security            │
-  Client ──────►   │  Nginx + ModSecurity CRS v4              │  ──────► Backend
-  (HTTP/HTTPS)     │  ┌─────────┐  ┌──────────┐  ┌────────┐  │          (HTTP/HTTPS)
-                    │  │  Rate   │─►│   WAF    │─►│ Proxy  │  │
-                    │  │ Limiter │  │(15 rules)│  │        │  │
-                    │  └─────────┘  └──────────┘  └────────┘  │
-                    └────────────────────┬────────────────────┘
-                                         │ logs (volume mount)
-                    ┌────────────────────┴────────────────────┐
-                    │     Monitoring (optional, separate)      │
-                    │  CrowdSec │ Loki │ Promtail │ Grafana   │
-                    └─────────────────────────────────────────┘
-```
-
-## File Structure
-
-```
-cloud-native-nginx/
-├── Dockerfile                          # Single-image build
-├── .dockerignore                       # Build context exclusions
-├── Makefile                            # All commands
-├── docker-compose.yml                  # Development env (with httpbin)
-├── docker-compose.monitoring.yml       # Monitoring stack (optional)
-├── .env.example                        # Environment variable template
-│
-├── config/
-│   ├── nginx/
-│   │   └── default.conf.template       # Nginx config (rate limiting, proxy)
-│   ├── modsecurity/
-│   │   ├── custom-rules.conf           # 15 custom WAF rules
-│   │   └── exclusions.conf             # False positive exclusions
-│   ├── crowdsec/                       # CrowdSec IPS config
-│   ├── loki/
-│   │   └── loki-config.yml             # Log aggregation config
-│   └── promtail/
-│       └── promtail-config.yml         # Log collector config
-│
-├── scripts/
-│   ├── test-security.sh                # Attack tests (SQLi, XSS, SSRF, etc.)
-│   └── test-false-positives.sh         # Legitimate traffic tests
-│
-├── docs/
-│   ├── QUICK_REFERENCE.md              # Command reference
-│   └── EMERGENCY.md                    # Emergency procedures
-│
-├── certs/                              # SSL certificates (not in image)
-├── logs/                               # Shared log volume
-│   ├── nginx/
-│   └── modsecurity/
-├── monitoring/
-│   ├── prometheus-scrape-config.yml    # Prometheus config template
-│   └── dashboards/
-│       ├── nginx-security.json         # Grafana dashboard (importable)
-│       └── README.md                   # Dashboard import instructions
-└── .github/
-    └── workflows/
-        └── ci.yml                      # CI/CD pipeline
-```
-
-## Docs
-
-- [Quick Reference](docs/QUICK_REFERENCE.md) - All commands and manual operations
-- [Emergency Procedures](docs/EMERGENCY.md) - Incident response playbook
+| Port | Description |
+|------|-------------|
+| 8080 | HTTP |
+| 8443 | HTTPS |
+| 9113 | nginx-exporter metrics (sidecar) |
+| 6060 | CrowdSec metrics (sidecar) |
